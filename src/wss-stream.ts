@@ -107,7 +107,7 @@ export class OpenAIRealtimeAudio {
     const sampleRate = 24000;
     const channels = 1;
 
-    return new Promise<void>((resolve, reject) => {
+    return new Promise<void>(async (resolve, reject) => {
       // Spawn FFmpeg to process the raw PCM input
       const ffmpeg = spawn("ffmpeg", [
         "-f",
@@ -119,6 +119,8 @@ export class OpenAIRealtimeAudio {
         "-i",
         "pipe:0", // Read input from stdin
         "-f",
+        // "wav",
+        // "pipe:1",
         "s16le", // Output format: raw PCM
         "pipe:1", // Write output to stdout
       ]);
@@ -137,7 +139,7 @@ export class OpenAIRealtimeAudio {
         reject(err); // Reject the promise on error
       });
 
-      const OpenAIWSSStream = new ReadableStream({
+      const [OpenAIWSSStream, OpenAIWSSStream2] = new ReadableStream({
         start: async (controller) => {
           const reader = this.wssStream.getReader();
           for await (const chunk of streamAsyncIterator(reader)) {
@@ -149,7 +151,17 @@ export class OpenAIRealtimeAudio {
             }
           }
         },
-      }).pipeThrough(new TransformStream(new OpenAIAudioDeltasBufferStream()));
+      }).tee();
+
+      const OpenAITranscriptStream = OpenAIWSSStream2.pipeThrough(
+        new TransformStream({
+          transform(chunk, controller) {
+            if (chunk.type === "response.audio_transcript.delta") {
+              controller.enqueue(chunk.delta);
+            }
+          },
+        })
+      );
 
       const speaker = new Speaker({
         channels, // Number of audio channels
@@ -158,6 +170,17 @@ export class OpenAIRealtimeAudio {
       });
 
       ffmpeg.stdout.pipe(speaker);
+
+      // const symphoniaPlay = spawn("./symphonia-play", ["-"]);
+
+      // Pipe FFmpeg's stdout to symphonia-play's stdin
+      // ffmpeg.stdout.pipe(symphoniaPlay.stdin);
+
+      // Handle errors for symphonia-play
+      // symphoniaPlay.on("error", (err) => {
+      //   console.error("Error with symphonia-play:", err);
+      //   reject(err);
+      // });
 
       const ffmpegWritableStream = new WritableStream({
         write(chunk) {
@@ -168,10 +191,27 @@ export class OpenAIRealtimeAudio {
         },
       });
 
-      OpenAIWSSStream.pipeTo(ffmpegWritableStream).catch((err) => {
-        console.error("Error in OpenAIWSSStream:", err);
-        reject(err); // Reject the promise if the stream encounters an error
-      });
+      try {
+        await OpenAIWSSStream.pipeThrough(
+          new TransformStream(new OpenAIAudioDeltasBufferStream())
+        )
+          .pipeTo(ffmpegWritableStream)
+          .then(async () => {
+            const transcriptReader = OpenAITranscriptStream.getReader();
+
+            let totalTranscript = "";
+            for await (const transcript of streamAsyncIterator(
+              transcriptReader
+            )) {
+              totalTranscript += transcript;
+            }
+
+            console.log("[BOT]> ", totalTranscript);
+          });
+      } catch (e) {
+        console.error("Error in OpenAIWSSStream:", e);
+        reject(e); // Reject the promise if the stream encounters an error
+      }
     });
   }
 
@@ -230,7 +270,7 @@ process.on("SIGINT", () => {
   await openAIRealtimeAudio.connect();
 
   while (true) {
-    const question = await askQuestion('Ask a question (or type "exit"):\n> ');
+    const question = await askQuestion("[YOU]>  ");
 
     if (question.toLowerCase() === "exit") {
       console.log("\nGoodbye!");
