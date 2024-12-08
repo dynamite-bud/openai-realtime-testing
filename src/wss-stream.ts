@@ -1,7 +1,6 @@
 import type { UnderlyingSource } from "node:stream/web";
 import WebSocket from "ws";
 import readline from "readline";
-import { spawn } from "child_process";
 import Speaker from "speaker";
 
 const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -108,37 +107,6 @@ export class OpenAIRealtimeAudio {
     const channels = 1;
 
     return new Promise<void>(async (resolve, reject) => {
-      // Spawn FFmpeg to process the raw PCM input
-      const ffmpeg = spawn("ffmpeg", [
-        "-f",
-        "s16le", // Input format: signed 16-bit little-endian PCM
-        "-ar",
-        sampleRate.toString(), // Input sample rate
-        "-ac",
-        channels.toString(), // Input channels
-        "-i",
-        "pipe:0", // Read input from stdin
-        "-f",
-        // "wav",
-        // "pipe:1",
-        "s16le", // Output format: raw PCM
-        "pipe:1", // Write output to stdout
-      ]);
-
-      ffmpeg.on("close", (code) => {
-        if (code === 0) {
-          //   console.error("Audio playback finished.");
-          resolve(); // Resolve the promise when playback is complete
-        } else {
-          reject(new Error(`FFmpeg process exited with code ${code}`));
-        }
-      });
-
-      ffmpeg.on("error", (err) => {
-        console.error("Error spawning FFmpeg:", err);
-        reject(err); // Reject the promise on error
-      });
-
       const [OpenAIWSSStream, OpenAIWSSStream2] = new ReadableStream({
         start: async (controller) => {
           const reader = this.wssStream.getReader();
@@ -169,25 +137,21 @@ export class OpenAIRealtimeAudio {
         sampleRate, // Samples per second
       });
 
-      ffmpeg.stdout.pipe(speaker);
+      speaker.on("close", () => {
+        resolve();
+      });
 
-      // const symphoniaPlay = spawn("./symphonia-play", ["-"]);
+      speaker.on("error", (err) => {
+        console.error("Speaker error:", err);
+        reject(err);
+      });
 
-      // Pipe FFmpeg's stdout to symphonia-play's stdin
-      // ffmpeg.stdout.pipe(symphoniaPlay.stdin);
-
-      // Handle errors for symphonia-play
-      // symphoniaPlay.on("error", (err) => {
-      //   console.error("Error with symphonia-play:", err);
-      //   reject(err);
-      // });
-
-      const ffmpegWritableStream = new WritableStream({
+      const speakerWritableStream = new WritableStream({
         write(chunk) {
-          ffmpeg.stdin.write(chunk); // Write data to FFmpeg's stdin
+          speaker.write(chunk);
         },
         close() {
-          ffmpeg.stdin.end(); // End the FFmpeg process when stream closes
+          speaker.end();
         },
       });
 
@@ -195,7 +159,7 @@ export class OpenAIRealtimeAudio {
         await OpenAIWSSStream.pipeThrough(
           new TransformStream(new OpenAIAudioDeltasBufferStream())
         )
-          .pipeTo(ffmpegWritableStream)
+          .pipeTo(speakerWritableStream)
           .then(async () => {
             const transcriptReader = OpenAITranscriptStream.getReader();
 

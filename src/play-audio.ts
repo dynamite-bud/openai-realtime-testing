@@ -51,10 +51,11 @@ function playAudio(
     "-i",
     "pipe:0", // Read input from stdin
     "-f",
-    "wav",
-    "pipe:1",
-    // "s16le", // Output format: raw PCM
+    // "wav",
+    // "pipe:1",
+    "s16le", // Output format: raw PCM
     // "pipe:1", // Write output to stdout
+    "output.pcm", // write the output to a file
   ]);
 
   ffmpeg.on("close", (code) => {
@@ -81,29 +82,29 @@ function playAudio(
   // ffmpeg.stdout.pipe(speaker);
 
   // Pipe FFmpeg's stdout to symphonia-play's stdin
-  ffmpeg.stdout.pipe(symphoniaPlay.stdin);
+  // ffmpeg.stdout.pipe(symphoniaPlay.stdin);
 
   // Handle errors for symphonia-play
-  symphoniaPlay.on("error", (err) => {
-    console.error("Error with symphonia-play:", err);
-  });
+  // symphoniaPlay.on("error", (err) => {
+  //   console.error("Error with symphonia-play:", err);
+  // });
 
-  symphoniaPlay.on("close", (code) => {
-    console.log(`symphonia-play process exited with code ${code}`);
-  });
+  // symphoniaPlay.on("close", (code) => {
+  //   console.log(`symphonia-play process exited with code ${code}`);
+  // });
 
   // Optionally handle output/errors from symphonia-play for debugging
   // symphoniaPlay.stdout.on("data", (data) => {
   //   console.log(`symphonia-play output: ${data}`);
   // });
 
-  symphoniaPlay.stderr.on("data", (data) => {
-    console.error(`symphonia-play error: ${data}`);
-  });
+  // symphoniaPlay.stderr.on("data", (data) => {
+  //   console.error(`symphonia-play error: ${data}`);
+  // });
 
   // Write raw PCM data to FFmpeg's stdin
-  //   ffmpeg.stdin.write(rawPCMData);
-  //   ffmpeg.stdin.end();
+  ffmpeg.stdin.write(rawPCMData);
+  ffmpeg.stdin.end();
 
   // Convert the Buffer to a stream
   const bufferStream = new Readable({

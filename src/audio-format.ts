@@ -53,4 +53,4 @@ const base64StringDeltas = data
   .map((response) => response.delta as string);
 // Decode, concatenate, and save the audio file
 const rawPCMData = concatenateRawPCM(decodeBase64Strings(base64StringDeltas));
-saveAsAudioFile(rawPCMData, "./output4.wav");
+saveAsAudioFile(rawPCMData, "./output6.pcm");
